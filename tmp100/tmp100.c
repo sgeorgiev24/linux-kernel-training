@@ -12,7 +12,6 @@ static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 	s32 word_data;
 	word_data = i2c_smbus_read_byte_data(client, reg);
 
-	// TODO: validate word_data
 	if (word_data < 0) {
 		return -EIO;
 	} else {
@@ -28,19 +27,18 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 
 	struct i2c_adapter *adapter = client->adapter;
 
-	/* check if adapter support i2c commands */
 	error = i2c_check_functionality(adapter, I2C_FUNC_I2C);
 	if (error < 0) {
 		return -ENODEV;
 	}
 
-	/* trying to read from device */
 	error = i2c_master_recv(client, val, BYTES_TO_READ);
 	if (error < 0) {
 		return -ENODEV;
 	}
 
-	printk(KERN_INFO "WORD DATA: %d\n", tmp100_i2c_read(client, TMP100_TEMP_REG));
+	printk(KERN_INFO "WORD DATA: %d\n", 
+					tmp100_i2c_read(client, TMP100_TEMP_REG));
 
 	return 0;
 }
@@ -78,12 +76,6 @@ static struct i2c_driver tmp100_driver = {
 };
 
 module_i2c_driver(tmp100_driver);
-
-static struct class tmp100_class = {
-	.name = "tmp100",
-};
-
-// class_register(&tmp100_class);
 
 MODULE_DESCRIPTION("Driver for tmp100.");
 MODULE_AUTHOR("Stanislav Georgiev");
