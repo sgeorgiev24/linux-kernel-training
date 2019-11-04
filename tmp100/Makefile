@@ -1,11 +1,12 @@
-all: export ARCH=arm
-all: export CROSS_COMPILE=arm-linux-gnueabihf-
+ARCH ?= arm
+CROSS_COMPILE ?= arm-linux-gnueabihf-
+KERNEL ?= ../../linux/.
 
-KERNEL = ../../linux/.
 ifneq ($(KERNELRELEASE),)
 obj-m := tmp100.o
 else
 KDIR := $(KERNEL)
-all:
-	$(MAKE) -C $(KDIR) M=$(PWD)
 endif
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
