@@ -22,7 +22,7 @@ static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 {
 	s32 word_data;
 
-	word_data = i2c_smbus_read_byte_data(client, reg);
+	word_data = i2c_smbus_read_word_data(client, reg);
 
 	if (word_data < 0)
 		return -EIO;
@@ -33,8 +33,17 @@ static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 static ssize_t tmp100_show(struct kobject *kobj, struct kobj_attribute *attr,
 		char *buf)
 {
-	return sprintf(buf, "%d\n", tmp100_i2c_read(master_client,
-				TMP100_TEMP_REG));
+	s32 ret;
+	s8 temp;
+
+	ret = tmp100_i2c_read(master_client, TMP100_TEMP_REG);
+
+	if (ret < 0)
+		return ret;
+
+	temp = ret;
+
+	return sprintf(buf, "%d\n", temp);
 }
 
 static int tmp100_i2c_probe(struct i2c_client *client,
