@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/err.h>
+#include <linux/kdev_t.h>
+#include <linux/fs.h>
 #include <linux/device.h>
 
 #define BYTES_TO_READ 4
 #define TMP100_TEMP_REG 0x00
 #define ONLY_READ_PERMISSIONS 0444
 
+dev_t dev;
+
+/*
 static ssize_t tmp100_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf);
-
-static struct kobject *kobj_ref;
-static struct kobj_attribute etx_attr = __ATTR(tmp100_val,
-		ONLY_READ_PERMISSIONS, tmp100_show, NULL);
+*/
 
 struct i2c_client *master_client;
 
+/*
 static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 {
 	s32 word_data;
@@ -45,6 +49,7 @@ static ssize_t tmp100_show(struct kobject *kobj, struct kobj_attribute *attr,
 
 	return sprintf(buf, "%d\n", temp);
 }
+*/
 
 static int tmp100_i2c_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -55,6 +60,13 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	struct i2c_adapter *adapter = client->adapter;
 
 	master_client = client;
+	dev = 0;
+
+	/* Allocating major number */
+	if (alloc_chrdev_region(&dev, 0, 1, "tmp100")) {
+		pr_err("Connot allocate major number for tmp100\n");
+		unregister_chrdev_region(dev, 1);
+	}
 
 	error = i2c_check_functionality(adapter, I2C_FUNC_I2C);
 	if (error < 0)
@@ -64,17 +76,13 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	if (error < 0)
 		return -ENODEV;
 
-	kobj_ref = kobject_create_and_add("tmp100", NULL);
-
-	if (sysfs_create_file(kobj_ref, &etx_attr.attr))
-		pr_info("Cannot create sysfs file!\n");
-
 	return 0;
 }
 
 static int tmp100_i2c_remove(struct i2c_client *client)
 {
-	kobject_put(kobj_ref);
+	unregister_chrdev_region(dev, 1);
+
 	return 0;
 }
 
