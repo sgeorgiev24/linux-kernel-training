@@ -12,16 +12,15 @@
 #define TMP100_TEMP_REG 0x00
 #define ONLY_READ_PERMISSIONS 0444
 
+static struct class *dev_class;
+static struct i2c_client *master_client;
+
 dev_t dev;
 
 /*
 static ssize_t tmp100_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf);
-*/
 
-struct i2c_client *master_client;
-
-/*
 static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 {
 	s32 word_data;
@@ -62,12 +61,6 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	master_client = client;
 	dev = 0;
 
-	/* Allocating major number */
-	if (alloc_chrdev_region(&dev, 0, 1, "tmp100")) {
-		pr_err("Connot allocate major number for tmp100\n");
-		unregister_chrdev_region(dev, 1);
-	}
-
 	error = i2c_check_functionality(adapter, I2C_FUNC_I2C);
 	if (error < 0)
 		return -ENODEV;
@@ -76,11 +69,37 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	if (error < 0)
 		return -ENODEV;
 
+	/* Allocating major number */
+	if (alloc_chrdev_region(&dev, 0, 1, "tmp100_dev")) {
+		pr_err("Connot allocate major number for tmp100\n");
+		return -1;
+	}
+
+	/* Create struct class */
+	if ((dev_class = class_create(THIS_MODULE, "tmp100_class")) == NULL) {
+		pr_err("Cannot create the struct class for tmp100\n");
+		goto r_class;
+	}
+
+	/* Creating the device */
+	if (device_create(dev_class, NULL, dev, NULL, "tmp100_device") == NULL) {
+		pr_err("Cannot create the DEvice tmp100\n");
+		goto r_device;
+	}
+
 	return 0;
+
+r_device:
+	class_destroy(dev_class);
+r_class:
+	unregister_chrdev_region(dev, 1);
+	return -1;
 }
 
 static int tmp100_i2c_remove(struct i2c_client *client)
 {
+	device_destroy(dev_class, dev);
+	class_destroy(dev_class);
 	unregister_chrdev_region(dev, 1);
 
 	return 0;
