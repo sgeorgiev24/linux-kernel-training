@@ -85,15 +85,6 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	if (error < 0)
 		return -ENODEV;
 
-	/* DEBUG */
-	/*
-	pr_info("VAL: %x\n", val[0]);
-	pr_info("VAL: %x\n", val[1]);
-	pr_info("VAL: %x\n", val[2]);
-	pr_info("VAL: %x\n", val[3]);
-	*/
-	/* DEBUG */
-
 	/* Allocating major number */
 	if (alloc_chrdev_region(&dev, 0, 1, "tmp100_dev")) {
 		pr_err("Cannot allocate major number for tmp100\n");
