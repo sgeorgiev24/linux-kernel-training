@@ -45,7 +45,7 @@ static ssize_t tmp100_file_read(struct file *filp, char __user *buf,
 {
 	s32 word_data;
 	s16 temp;
-	s8 floating_point;
+	s32 floating_point;
 	s8 temperature;
 
 	word_data = tmp100_i2c_read(master_client, TMP100_TEMP_REG);
@@ -54,20 +54,13 @@ static ssize_t tmp100_file_read(struct file *filp, char __user *buf,
 		return word_data;
 
 	temp = word_data; // 1000 0000 0001 1000 if 8019
-	floating_point = (temp>>12); // 1111 1000 if x.5 or 0000 0000 if x.0
-	floating_point &= 8;
 	temperature = temp & 0xff;
 
-	/*
-	pr_info("TEMP: %d -> %x\n", temp, temp);
-	pr_info("FLOATING POINT: %d -> %x\n", floating_point, floating_point);
-	pr_info("TEMPERATURE: %d -> %x\n", temperature, temperature);
-	*/
-
-	if (floating_point)
-		pr_info("%d.5\n", temperature);
-	else
-		pr_info("%d\n", temperature);
+	floating_point = temp>>12; // 1111 1000 if x.5 or 0000 0000 if x.0
+	floating_point &= 0x0000000f;
+	floating_point *= 10000;
+	floating_point >>= 4;
+	pr_info("%d.%d\n", temperature, floating_point);
 
 	return 0;
 }
