@@ -11,7 +11,6 @@
 
 #define BYTES_TO_READ 2
 #define TMP100_TEMP_REG 0x00
-#define ONLY_READ_PERMISSIONS 0444
 
 dev_t dev;
 
@@ -19,13 +18,13 @@ static struct class *dev_class;
 static struct i2c_client *master_client;
 static struct cdev tmp100_cdev;
 
-static ssize_t tmp100_file_read(struct file *filp, char __user *buf,
+static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off);
 
 
 static const struct file_operations fops = {
 	.owner = THIS_MODULE,
-	.read = tmp100_file_read,
+	.read = tmp100_print_temp,
 };
 
 static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
@@ -40,11 +39,10 @@ static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
 		return word_data;
 }
 
-static ssize_t tmp100_file_read(struct file *filp, char __user *buf,
+static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off)
 {
 	s32 word_data;
-	s16 temp;
 	s32 floating_point;
 	s8 temperature;
 
@@ -53,14 +51,14 @@ static ssize_t tmp100_file_read(struct file *filp, char __user *buf,
 	if (word_data < 0)
 		return word_data;
 
-	temp = word_data; // 1000 0000 0001 1000 if 8019
-	temperature = temp & 0xff;
+	temperature = word_data;
 
-	floating_point = temp>>12; // 1111 1000 if x.5 or 0000 0000 if x.0
-	floating_point &= 0x0000000f;
-	floating_point *= 10000;
+	floating_point = word_data>>12;
+	floating_point &= 0xf;
+	floating_point *= 100;
 	floating_point >>= 4;
-	pr_info("%d.%d\n", temperature, floating_point);
+
+	pr_info("TMP100 temp: %d.%d C\n", temperature, floating_point);
 
 	return 0;
 }
@@ -71,22 +69,20 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	int error;
 	u8 val[BYTES_TO_READ];
 
-	struct i2c_adapter *adapter = client->adapter;
-
 	master_client = client;
 	dev = 0;
 
-	error = i2c_check_functionality(adapter, I2C_FUNC_I2C);
-	if (error < 0)
-		return -ENODEV;
-
-	// i2c_master_send(client, val, 1);
 	error = i2c_master_recv(client, val, BYTES_TO_READ);
 	if (error < 0)
 		return -ENODEV;
 
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		pr_err("I2C_FUNC_I2C not supported\n");
+		return -ENODEV;
+	}
+
 	/* Allocating major number */
-	if (alloc_chrdev_region(&dev, 0, 1, "tmp100_dev")) {
+	if (alloc_chrdev_region(&dev, 0, 1, "tmp100")) {
 		pr_err("Cannot allocate major number for tmp100\n");
 		return -1;
 	}
@@ -101,14 +97,14 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	}
 
 	/* Create struct class */
-	dev_class = class_create(THIS_MODULE, "tmp100_class");
+	dev_class = class_create(THIS_MODULE, "tmp100");
 	if (dev_class == NULL) {
 		pr_err("Cannot create the struct class for tmp100\n");
 		goto r_class;
 	}
 
 	/* Creating the device */
-	if (device_create(dev_class, NULL, dev, NULL, "tmp100_device") == NULL) {
+	if (device_create(dev_class, NULL, dev, NULL, "tmp100") == NULL) {
 		pr_err("Cannot create the DEvice tmp100\n");
 		goto r_device;
 	}
