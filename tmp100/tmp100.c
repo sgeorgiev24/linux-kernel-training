@@ -9,15 +9,27 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
+#include <linux/regmap.h>
 
-#define BYTES_TO_READ 2
-#define TMP100_TEMP_REG 0x00
+#define		DRIVER_NAME			"tmp100"
+
+#define		TMP100_TEMP_REG		0x00
+#define		TMP100_CONF_REG		0x01
+#define		TMP100_TLOW_REG		0x03
+#define		TMP100_THIGH_REG	0x04
 
 struct tmp100 {
 	dev_t dev;
 	struct class *dev_class;
 	struct i2c_client *master_client;
 	struct cdev tmp100_cdev;
+	struct regmap *regmap;
+};
+
+static const struct regmap_config tmp100_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 16,
+	.max_register = TMP100_THIGH_REG,
 };
 
 struct tmp100 tmp100; // use container_of to get rid of this global var
@@ -31,64 +43,43 @@ static const struct file_operations fops = {
 	.read = tmp100_print_temp,
 };
 
-static s32 tmp100_i2c_read(struct i2c_client *client, u8 reg)
-{
-	s32 word_data;
-
-	word_data = i2c_smbus_read_word_data(client, reg);
-
-	if (word_data < 0)
-		return -EIO;
-	else
-		return word_data;
-}
-
 static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off)
 {
-	s32 word_data;
-	s32 fraction;
-	s8 temperature;
-	char ret[sizeof(temperature) + sizeof(fraction) + 1];
+	unsigned int regval;
+	int error;
+	char text[50];
+	int len2;
 
-	/*
-	 *  word_data format:
-	 * xxxx xxxx xxxx xxxx        xxxx          xxxx          xxxx xxxx
-	 *        \  /                 ||            ||             \   /
-	 *         \/                  \/            \/              \ /
-	 *  zeros if no error       fraction    always zeros     whole number
-	 */
-	word_data = tmp100_i2c_read(tmp100.master_client, TMP100_TEMP_REG);
+	error = regmap_read(tmp100.regmap, TMP100_TEMP_REG, &regval);
+	if (error < 0)
+		return error;
 
-	if (word_data < 0)
-		return word_data;
+	sprintf(text, "%d.%d\n", regval>>8, (((regval>>4)&0xf)*10)>>4);
+	len2 = strlen(text);
 
-	/* we need only the 8 LSB for the whole part of the temperature */
-	temperature = word_data;
+	if (len < len2)
+		return -EINVAL;
 
-	fraction = word_data>>12;
-	fraction &= 0xf;
-	fraction *= 10;
-	fraction >>= 4;
+	if (*off != 0)
+		return 0;
 
-	if (snprintf(ret, sizeof(ret), "%d.%d\n", temperature, fraction) < 0)
-		return -1;
+	if (copy_to_user(buf, text, len2))
+		return -EINVAL;
 
-	return simple_read_from_buffer(buf, len, off, ret, sizeof(ret));
+	*off = len2;
+	return len2;
 }
 
 static int tmp100_i2c_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
-	int error;
-	u8 val[BYTES_TO_READ];
-
 	tmp100.master_client = client;
 	tmp100.dev = 0;
+	tmp100.regmap = devm_regmap_init_i2c(client, &tmp100_regmap_config);
 
-	error = i2c_master_recv(client, val, BYTES_TO_READ);
-	if (error < 0)
-		return -ENODEV;
+	if (IS_ERR(tmp100.regmap))
+		return PTR_ERR(tmp100.regmap);
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		pr_err("I2C_FUNC_I2C not supported\n");
@@ -96,7 +87,7 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	}
 
 	/* Allocating major number */
-	if (alloc_chrdev_region(&tmp100.dev, 0, 1, "tmp100")) {
+	if (alloc_chrdev_region(&tmp100.dev, 0, 1, DRIVER_NAME)) {
 		pr_err("Cannot allocate major number for tmp100\n");
 		return -1;
 	}
@@ -111,14 +102,15 @@ static int tmp100_i2c_probe(struct i2c_client *client,
 	}
 
 	/* Create struct class */
-	tmp100.dev_class = class_create(THIS_MODULE, "tmp100");
+	tmp100.dev_class = class_create(THIS_MODULE, DRIVER_NAME);
 	if (tmp100.dev_class == NULL) {
 		pr_err("Cannot create the struct class for tmp100\n");
 		goto r_class;
 	}
 
 	/* Creating the device */
-	if (device_create(tmp100.dev_class, NULL, tmp100.dev, NULL, "tmp100") == NULL) {
+	if (device_create(tmp100.dev_class, NULL, tmp100.dev, NULL,
+				DRIVER_NAME) == NULL) {
 		pr_err("Cannot create the DEvice tmp100\n");
 		goto r_device;
 	}
