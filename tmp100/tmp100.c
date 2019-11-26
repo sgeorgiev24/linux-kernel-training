@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/err.h>
+#include <linux/fs.h>
+#include <linux/i2c.h>
 #include <linux/init.h>
+#include <linux/kdev_t.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/i2c.h>
-#include <linux/err.h>
-#include <linux/kdev_t.h>
-#include <linux/fs.h>
-#include <linux/device.h>
-#include <linux/cdev.h>
-#include <linux/uaccess.h>
 #include <linux/regmap.h>
+#include <linux/uaccess.h>
 
 #define		DRIVER_NAME			"tmp100"
+
+#define		BUFSIZE 			(10)
 
 #define		TMP100_TEMP_REG		0x00
 #define		TMP100_CONF_REG		0x01
@@ -37,7 +39,6 @@ struct tmp100 tmp100; // use container_of to get rid of this global var
 static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off);
 
-
 static const struct file_operations fops = {
 	.owner = THIS_MODULE,
 	.read = tmp100_print_temp,
@@ -46,29 +47,56 @@ static const struct file_operations fops = {
 static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off)
 {
-	unsigned int regval;
 	int error;
-	char text[50];
-	int len2;
+	int count;
+	unsigned int regval;
+	s16 signed_regval;
+	char temp[BUFSIZE];
 
 	error = regmap_read(tmp100.regmap, TMP100_TEMP_REG, &regval);
 	if (error < 0)
 		return error;
 
-	sprintf(text, "%d.%d\n", regval>>8, (((regval>>4)&0xf)*10)>>4);
-	len2 = strlen(text);
+	/* REMOVE THE LINES BELOW */
+	// regval = 0x1730;
+	regval = 0xffe0;
 
-	if (len < len2)
+	signed_regval = regval;
+
+	/*
+	 * If signed_regval is two's compliment, we want to convert it to decimal
+	 * and print minus sign.
+	 */
+	if (signed_regval < 0) {
+		signed_regval = ~(signed_regval-1);
+		snprintf(temp, sizeof(temp), "-%d.%04d\n", signed_regval>>8,
+				(((signed_regval>>4)&0xf)*10000)>>4);
+	} else {
+		snprintf(temp, sizeof(temp), "%d.%04d\n", signed_regval>>8,
+				(((signed_regval>>4)&0xf)*10000)>>4);
+	}
+
+	temp[BUFSIZE - 1] = '\0';
+	count = strlen(temp);
+	pr_info("len = %d", count);
+
+	/*
+	 * We want to read the whole temp.
+	 */
+	if (len < count)
 		return -EINVAL;
 
+	/*
+	 * Check if there is no more data to be read.
+	 */
 	if (*off != 0)
 		return 0;
 
-	if (copy_to_user(buf, text, len2))
+	if (copy_to_user(buf, temp, count))
 		return -EINVAL;
 
-	*off = len2;
-	return len2;
+	*off = count;
+	return count;
 }
 
 static int tmp100_i2c_probe(struct i2c_client *client,
