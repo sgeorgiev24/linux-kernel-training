@@ -13,7 +13,7 @@
 
 #define		DRIVER_NAME			"tmp100"
 
-#define		BUFSIZE 			(10)
+#define		BUFSIZE				(10)
 
 #define		TMP100_TEMP_REG		0x00
 #define		TMP100_CONF_REG		0x01
@@ -23,7 +23,6 @@
 struct tmp100 {
 	dev_t dev;
 	struct class *dev_class;
-	struct i2c_client *master_client;
 	struct cdev tmp100_cdev;
 	struct regmap *regmap;
 };
@@ -34,7 +33,10 @@ static const struct regmap_config tmp100_regmap_config = {
 	.max_register = TMP100_THIGH_REG,
 };
 
-struct tmp100 tmp100; // use container_of to get rid of this global var
+/*
+ * TODO: remove this global var.
+ */
+struct tmp100 tmp100;
 
 static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		size_t len, loff_t *off);
@@ -52,33 +54,28 @@ static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 	unsigned int regval;
 	s16 signed_regval;
 	char temp[BUFSIZE];
+	char sign = '+';
 
 	error = regmap_read(tmp100.regmap, TMP100_TEMP_REG, &regval);
 	if (error < 0)
 		return error;
 
-	/* REMOVE THE LINES BELOW */
-	// regval = 0x1730;
-	regval = 0xffe0;
-
 	signed_regval = regval;
 
 	/*
-	 * If signed_regval is two's compliment, we want to convert it to decimal
-	 * and print minus sign.
+	 * If signed_regval is two's compliment, we want to convert
+	 * it to decimal and print minus sign.
 	 */
 	if (signed_regval < 0) {
-		signed_regval = ~(signed_regval-1);
-		snprintf(temp, sizeof(temp), "-%d.%04d\n", signed_regval>>8,
-				(((signed_regval>>4)&0xf)*10000)>>4);
-	} else {
-		snprintf(temp, sizeof(temp), "%d.%04d\n", signed_regval>>8,
-				(((signed_regval>>4)&0xf)*10000)>>4);
+		signed_regval = -signed_regval; // ~(signed_regval-1);
+		sign = '-';
 	}
+
+	snprintf(temp, sizeof(temp), "%c%d.%04d\n", sign, signed_regval>>8,
+			(((signed_regval>>4)&0xf)*10000)>>4);
 
 	temp[BUFSIZE - 1] = '\0';
 	count = strlen(temp);
-	pr_info("len = %d", count);
 
 	/*
 	 * We want to read the whole temp.
@@ -93,7 +90,7 @@ static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 		return 0;
 
 	if (copy_to_user(buf, temp, count))
-		return -EINVAL;
+		return -EFAULT;
 
 	*off = count;
 	return count;
@@ -102,7 +99,6 @@ static ssize_t tmp100_print_temp(struct file *filp, char __user *buf,
 static int tmp100_i2c_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
-	tmp100.master_client = client;
 	tmp100.dev = 0;
 	tmp100.regmap = devm_regmap_init_i2c(client, &tmp100_regmap_config);
 
